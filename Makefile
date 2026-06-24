@@ -1,0 +1,40 @@
+# Makefile for UART project
+
+SIM_DIR = sim
+RTL_DIR = rtl
+TB_DIR = tb
+
+# iverilog executable
+IVC = iverilog
+VVP = vvp
+
+all: test_uart_tx test_baud_gen test_uart_rx test_uart_loopback
+
+test_baud_gen: $(SIM_DIR)/baud_gen.vvp
+	$(VVP) $(SIM_DIR)/baud_gen.vvp
+
+$(SIM_DIR)/baud_gen.vvp: $(RTL_DIR)/uart/baud_gen.v $(TB_DIR)/uart/baud_gen_tb.v
+	$(IVC) -o $@ $^
+
+test_uart_rx: $(SIM_DIR)/uart_rx.vvp
+	$(VVP) $(SIM_DIR)/uart_rx.vvp
+
+$(SIM_DIR)/uart_rx.vvp: $(RTL_DIR)/uart/uart_rx.v $(TB_DIR)/uart/uart_rx_tb.v
+	$(IVC) -o $@ $^
+
+test_uart_tx: $(SIM_DIR)/uart_tx.vvp
+	$(VVP) $(SIM_DIR)/uart_tx.vvp
+
+$(SIM_DIR)/uart_tx.vvp: $(RTL_DIR)/uart/uart_tx.v $(TB_DIR)/uart/uart_tx_tb.v
+	$(IVC) -o $@ $^
+
+test_uart_loopback: $(SIM_DIR)/uart_loopback.vvp
+	$(VVP) $(SIM_DIR)/uart_loopback.vvp
+
+$(SIM_DIR)/uart_loopback.vvp: $(RTL_DIR)/uart/uart_tx.v $(RTL_DIR)/uart/uart_rx.v $(RTL_DIR)/uart/uart_top.v $(TB_DIR)/uart/uart_loopback_tb.v
+	$(IVC) -o $@ $^
+
+clean:
+	rm -f $(SIM_DIR)/*.vvp $(SIM_DIR)/*.vcd
+
+.PHONY: all test_uart_tx clean
