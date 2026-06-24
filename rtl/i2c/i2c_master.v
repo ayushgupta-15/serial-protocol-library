@@ -12,11 +12,15 @@ module i2c_master #(
     input  wire       i_gen_stop,
     input  wire       i_send_byte,
     
-    // P4: Address and RW
-    input  wire       i_cmd_write,    // Full transaction: START -> ADDR -> DATA -> STOP
+    // P4/P5: Address, RW, Multi-Byte Data
+    input  wire       i_cmd_write,    // Full transaction: START -> ADDR -> DATA... -> STOP
     input  wire [6:0] i_slave_addr,
     input  wire       i_rw,
-    input  wire [7:0] i_tx_data,
+    input  wire [7:0] i_data_0,
+    input  wire [7:0] i_data_1,
+    input  wire [7:0] i_data_2,
+    input  wire [7:0] i_data_3,
+    input  wire [2:0] i_num_bytes,    // Number of data bytes (1 to 4)
     
     output reg        o_busy,
     output reg        o_done,         // Pulse when a command finishes
@@ -45,7 +49,7 @@ module i2c_master #(
     reg [1:0]  step_count;
     reg [2:0]  bit_index;
     reg [7:0]  tx_reg;
-    reg [7:0]  data_reg;
+    reg [2:0]  byte_counter;
     
     reg do_data_after_start;
     reg do_stop_after_ack;
@@ -94,7 +98,7 @@ module i2c_master #(
             step_count <= 0;
             bit_index <= 0;
             tx_reg <= 0;
-            data_reg <= 0;
+            byte_counter <= 0;
             do_data_after_start <= 1'b0;
             do_stop_after_ack   <= 1'b0;
             is_addr_phase       <= 1'b0;
@@ -113,7 +117,7 @@ module i2c_master #(
                         scl_oe <= 1'b0; 
                         sda_oe <= 1'b0;
                         tx_reg <= {i_slave_addr, i_rw};
-                        data_reg <= i_tx_data;
+                        byte_counter <= 0;
                         bit_index <= 3'd7;
                         do_data_after_start <= 1'b1;
                         do_stop_after_ack   <= 1'b1;
@@ -132,7 +136,7 @@ module i2c_master #(
                     end else if (i_send_byte) begin
                         state <= SEND_BYTE;
                         o_busy <= 1'b1;
-                        tx_reg <= i_tx_data;
+                        tx_reg <= i_data_0;
                         bit_index <= 3'd7; // MSB first
                         do_stop_after_ack <= 1'b0;
                         is_addr_phase <= 1'b0;
@@ -250,18 +254,32 @@ module i2c_master #(
                                     // ACK
                                     if (is_addr_phase) begin
                                         is_addr_phase <= 1'b0;
-                                        tx_reg <= data_reg;
+                                        tx_reg <= i_data_0;
+                                        byte_counter <= 3'd1;
                                         bit_index <= 3'd7;
                                         state <= SEND_BYTE;
                                         step_count <= 0;
                                     end else begin
-                                        if (do_stop_after_ack) begin
-                                            state <= STOP;
-                                            do_stop_after_ack <= 1'b0;
+                                        if (byte_counter < i_num_bytes) begin
+                                            case (byte_counter)
+                                                1: tx_reg <= i_data_1;
+                                                2: tx_reg <= i_data_2;
+                                                3: tx_reg <= i_data_3;
+                                                default: tx_reg <= 8'h00;
+                                            endcase
+                                            byte_counter <= byte_counter + 1'b1;
+                                            bit_index <= 3'd7;
+                                            state <= SEND_BYTE;
                                             step_count <= 0;
                                         end else begin
-                                            state <= IDLE;
-                                            o_done <= 1'b1;
+                                            if (do_stop_after_ack) begin
+                                                state <= STOP;
+                                                do_stop_after_ack <= 1'b0;
+                                                step_count <= 0;
+                                            end else begin
+                                                state <= IDLE;
+                                                o_done <= 1'b1;
+                                            end
                                         end
                                     end
                                 end
