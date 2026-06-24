@@ -11,7 +11,11 @@ module i2c_master #(
     input  wire       i_gen_start,
     input  wire       i_gen_stop,
     input  wire       i_send_byte,
-    input  wire       i_cmd_write,    // Full transaction: START -> BYTE -> STOP
+    
+    // P4: Address and RW
+    input  wire       i_cmd_write,    // Full transaction: START -> ADDR -> DATA -> STOP
+    input  wire [6:0] i_slave_addr,
+    input  wire       i_rw,
     input  wire [7:0] i_tx_data,
     
     output reg        o_busy,
@@ -41,9 +45,11 @@ module i2c_master #(
     reg [1:0]  step_count;
     reg [2:0]  bit_index;
     reg [7:0]  tx_reg;
+    reg [7:0]  data_reg;
     
     reg do_data_after_start;
     reg do_stop_after_ack;
+    reg is_addr_phase;
     
     // Output enables (active high drives 0, inactive high-Z is pulled up by resistor)
     reg scl_oe;
@@ -88,8 +94,10 @@ module i2c_master #(
             step_count <= 0;
             bit_index <= 0;
             tx_reg <= 0;
+            data_reg <= 0;
             do_data_after_start <= 1'b0;
             do_stop_after_ack   <= 1'b0;
+            is_addr_phase       <= 1'b0;
         end else begin
             o_done <= 1'b0; // Default
             
@@ -104,10 +112,12 @@ module i2c_master #(
                         o_busy <= 1'b1;
                         scl_oe <= 1'b0; 
                         sda_oe <= 1'b0;
-                        tx_reg <= i_tx_data;
+                        tx_reg <= {i_slave_addr, i_rw};
+                        data_reg <= i_tx_data;
                         bit_index <= 3'd7;
                         do_data_after_start <= 1'b1;
                         do_stop_after_ack   <= 1'b1;
+                        is_addr_phase       <= 1'b1;
                     end else if (i_gen_start) begin
                         state <= START;
                         o_busy <= 1'b1;
@@ -125,6 +135,7 @@ module i2c_master #(
                         tx_reg <= i_tx_data;
                         bit_index <= 3'd7; // MSB first
                         do_stop_after_ack <= 1'b0;
+                        is_addr_phase <= 1'b0;
                     end
                 end
                 
@@ -225,13 +236,34 @@ module i2c_master #(
                                 // Q3: SCL goes low
                                 scl_oe <= 1'b1;
                                 
-                                if (do_stop_after_ack) begin
-                                    state <= STOP;
-                                    do_stop_after_ack <= 1'b0;
-                                    step_count <= 0;
+                                if (sda_sync[1] == 1'b1) begin
+                                    // NACK
+                                    if (do_stop_after_ack) begin
+                                        state <= STOP;
+                                        do_stop_after_ack <= 1'b0;
+                                        step_count <= 0;
+                                    end else begin
+                                        state <= IDLE;
+                                        o_done <= 1'b1;
+                                    end
                                 end else begin
-                                    state <= IDLE;
-                                    o_done <= 1'b1;
+                                    // ACK
+                                    if (is_addr_phase) begin
+                                        is_addr_phase <= 1'b0;
+                                        tx_reg <= data_reg;
+                                        bit_index <= 3'd7;
+                                        state <= SEND_BYTE;
+                                        step_count <= 0;
+                                    end else begin
+                                        if (do_stop_after_ack) begin
+                                            state <= STOP;
+                                            do_stop_after_ack <= 1'b0;
+                                            step_count <= 0;
+                                        end else begin
+                                            state <= IDLE;
+                                            o_done <= 1'b1;
+                                        end
+                                    end
                                 end
                             end
                         endcase
