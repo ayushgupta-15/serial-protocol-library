@@ -1,0 +1,31 @@
+name: RTL Verification
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Icarus Verilog
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y iverilog
+
+    - name: Compile and Run All Tests
+      run: |
+        make all | tee test_output.log
+        
+        # Check if any tests explicitly printed FAIL or FAILURE
+        if grep -q "FAIL" test_output.log; then
+          echo "❌ One or more tests failed!"
+          exit 1
+        fi
+        
+        echo "✅ All tests passed successfully!"
