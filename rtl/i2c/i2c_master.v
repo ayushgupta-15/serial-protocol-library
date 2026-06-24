@@ -85,6 +85,11 @@ module i2c_master #(
     assign o_start_detect = sda_falling & scl_high;
     assign o_stop_detect  = sda_rising & scl_high;
     
+    // Clock Stretching Detection
+    // If Master releases SCL (scl_oe = 0) but physical SCL is low (scl_sync[1] = 0),
+    // a slave is stretching the clock (or bus capacitance is delaying the rising edge).
+    wire clock_stretch = (scl_oe == 1'b0) && (scl_sync[1] == 1'b0);
+    
     // Generation logic
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -144,7 +149,9 @@ module i2c_master #(
                 end
                 
                 START: begin
-                    if (clk_count == QUARTER_PERIOD - 1) begin
+                    if (clock_stretch) begin
+                        // Wait for SCL to go high
+                    end else if (clk_count == QUARTER_PERIOD - 1) begin
                         clk_count <= 0;
                         step_count <= step_count + 1'b1;
                         
@@ -168,7 +175,9 @@ module i2c_master #(
                 end
                 
                 STOP: begin
-                    if (clk_count == QUARTER_PERIOD - 1) begin
+                    if (clock_stretch) begin
+                        // Wait for SCL to go high
+                    end else if (clk_count == QUARTER_PERIOD - 1) begin
                         clk_count <= 0;
                         step_count <= step_count + 1'b1;
                         
@@ -186,7 +195,9 @@ module i2c_master #(
                 end
                 
                 SEND_BYTE: begin
-                    if (clk_count == QUARTER_PERIOD - 1) begin
+                    if (clock_stretch) begin
+                        // Wait for SCL to go high
+                    end else if (clk_count == QUARTER_PERIOD - 1) begin
                         clk_count <= 0;
                         step_count <= step_count + 1'b1;
                         
@@ -219,7 +230,9 @@ module i2c_master #(
                 end
                 
                 WAIT_ACK: begin
-                    if (clk_count == QUARTER_PERIOD - 1) begin
+                    if (clock_stretch) begin
+                        // Wait for SCL to go high
+                    end else if (clk_count == QUARTER_PERIOD - 1) begin
                         clk_count <= 0;
                         step_count <= step_count + 1'b1;
                         

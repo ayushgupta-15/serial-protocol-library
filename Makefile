@@ -8,7 +8,7 @@ TB_DIR = tb
 IVC = iverilog
 VVP = vvp
 
-all: test_uart_tx test_baud_gen test_uart_rx test_uart_loopback test_spi_master test_spi_slave test_spi_loopback test_spi_modes test_i2c_start_stop test_i2c_ack_nack test_i2c_single_byte test_i2c_address test_i2c_multi_byte
+all: test_uart_tx test_baud_gen test_uart_rx test_uart_loopback test_spi_master test_spi_slave test_spi_loopback test_spi_modes test_i2c_start_stop test_i2c_ack_nack test_i2c_single_byte test_i2c_address test_i2c_multi_byte test_i2c_clock_stretch
 
 test_baud_gen: $(SIM_DIR)/baud_gen.vvp
 	$(VVP) $(SIM_DIR)/baud_gen.vvp
@@ -86,6 +86,12 @@ test_i2c_multi_byte: $(SIM_DIR)/i2c_multi_byte.vvp
 	$(VVP) $(SIM_DIR)/i2c_multi_byte.vvp
 
 $(SIM_DIR)/i2c_multi_byte.vvp: $(RTL_DIR)/i2c/i2c_master.v $(TB_DIR)/i2c/i2c_multi_byte_tb.v
+	$(IVC) -o $@ $^
+
+test_i2c_clock_stretch: $(SIM_DIR)/i2c_clock_stretch.vvp
+	$(VVP) $(SIM_DIR)/i2c_clock_stretch.vvp
+
+$(SIM_DIR)/i2c_clock_stretch.vvp: $(RTL_DIR)/i2c/i2c_master.v $(TB_DIR)/i2c/i2c_clock_stretch_tb.v
 	$(IVC) -o $@ $^
 
 clean:
