@@ -8,7 +8,7 @@ TB_DIR = tb
 IVC = iverilog
 VVP = vvp
 
-all: test_uart_tx test_baud_gen test_uart_rx test_uart_loopback
+all: test_uart_tx test_baud_gen test_uart_rx test_uart_loopback test_spi_master
 
 test_baud_gen: $(SIM_DIR)/baud_gen.vvp
 	$(VVP) $(SIM_DIR)/baud_gen.vvp
@@ -32,6 +32,12 @@ test_uart_loopback: $(SIM_DIR)/uart_loopback.vvp
 	$(VVP) $(SIM_DIR)/uart_loopback.vvp
 
 $(SIM_DIR)/uart_loopback.vvp: $(RTL_DIR)/uart/uart_tx.v $(RTL_DIR)/uart/uart_rx.v $(RTL_DIR)/uart/uart_top.v $(TB_DIR)/uart/uart_loopback_tb.v
+	$(IVC) -o $@ $^
+
+test_spi_master: $(SIM_DIR)/spi_master.vvp
+	$(VVP) $(SIM_DIR)/spi_master.vvp
+
+$(SIM_DIR)/spi_master.vvp: $(RTL_DIR)/spi/spi_master.v $(TB_DIR)/spi/spi_master_tb.v
 	$(IVC) -o $@ $^
 
 clean:
