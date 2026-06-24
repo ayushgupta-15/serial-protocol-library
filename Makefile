@@ -8,7 +8,7 @@ TB_DIR = tb
 IVC = iverilog
 VVP = vvp
 
-all: test_uart_tx test_baud_gen test_uart_rx test_uart_loopback test_spi_master test_spi_slave test_spi_loopback test_spi_modes
+all: test_uart_tx test_baud_gen test_uart_rx test_uart_loopback test_spi_master test_spi_slave test_spi_loopback test_spi_modes test_i2c_start_stop
 
 test_baud_gen: $(SIM_DIR)/baud_gen.vvp
 	$(VVP) $(SIM_DIR)/baud_gen.vvp
@@ -56,6 +56,12 @@ test_spi_modes: $(SIM_DIR)/spi_modes.vvp
 	$(VVP) $(SIM_DIR)/spi_modes.vvp
 
 $(SIM_DIR)/spi_modes.vvp: $(RTL_DIR)/spi/spi_master.v $(RTL_DIR)/spi/spi_slave.v $(TB_DIR)/spi/spi_modes_tb.v
+	$(IVC) -o $@ $^
+
+test_i2c_start_stop: $(SIM_DIR)/i2c_start_stop.vvp
+	$(VVP) $(SIM_DIR)/i2c_start_stop.vvp
+
+$(SIM_DIR)/i2c_start_stop.vvp: $(RTL_DIR)/i2c/i2c_master.v $(TB_DIR)/i2c/i2c_start_stop_tb.v
 	$(IVC) -o $@ $^
 
 clean:
