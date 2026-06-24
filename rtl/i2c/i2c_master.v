@@ -7,28 +7,39 @@ module i2c_master #(
     input  wire clk,
     input  wire rst,
     
-    // Commands for P1
-    input  wire i_gen_start,
-    input  wire i_gen_stop,
-    output reg  o_busy,
+    // Commands
+    input  wire       i_gen_start,
+    input  wire       i_gen_stop,
+    input  wire       i_send_byte,
+    input  wire [7:0] i_tx_data,
+    
+    output reg        o_busy,
+    output reg        o_done,         // Pulse when a command finishes
+    output reg        o_ack_error,    // 0 = ACK, 1 = NACK
     
     // I2C Bus (Open-Drain)
-    inout  wire io_scl,
-    inout  wire io_sda,
+    inout  wire       io_scl,
+    inout  wire       io_sda,
     
-    // Detection Outputs (for verification)
-    output wire o_start_detect,
-    output wire o_stop_detect
+    // Monitors
+    output wire       o_start_detect,
+    output wire       o_stop_detect
 );
 
     // I2C Timing: 100kHz = 10us period
     localparam QUARTER_PERIOD = CLK_FREQ / (4 * I2C_FREQ);
     
-    reg [1:0] state;
-    localparam IDLE = 0, START = 1, STOP = 2;
+    localparam IDLE      = 3'd0;
+    localparam START     = 3'd1;
+    localparam SEND_BYTE = 3'd2;
+    localparam WAIT_ACK  = 3'd3;
+    localparam STOP      = 3'd4;
     
+    reg [2:0] state;
     reg [15:0] clk_count;
-    reg [2:0]  step_count;
+    reg [1:0]  step_count;
+    reg [2:0]  bit_index;
+    reg [7:0]  tx_reg;
     
     // Output enables (active high drives 0, inactive high-Z is pulled up by resistor)
     reg scl_oe;
@@ -67,9 +78,15 @@ module i2c_master #(
             scl_oe <= 1'b0; // High-Z (1)
             sda_oe <= 1'b0; // High-Z (1)
             o_busy <= 1'b0;
+            o_done <= 1'b0;
+            o_ack_error <= 1'b0;
             clk_count <= 0;
             step_count <= 0;
+            bit_index <= 0;
+            tx_reg <= 0;
         end else begin
+            o_done <= 1'b0; // Default
+            
             case (state)
                 IDLE: begin
                     o_busy <= 1'b0;
@@ -86,6 +103,11 @@ module i2c_master #(
                         o_busy <= 1'b1;
                         scl_oe <= 1'b1; // Pull SCL low
                         sda_oe <= 1'b1; // Pull SDA low
+                    end else if (i_send_byte) begin
+                        state <= SEND_BYTE;
+                        o_busy <= 1'b1;
+                        tx_reg <= i_tx_data;
+                        bit_index <= 3'd7; // MSB first
                     end
                 end
                 
@@ -95,16 +117,11 @@ module i2c_master #(
                         step_count <= step_count + 1'b1;
                         
                         case (step_count)
-                            0: begin
-                                // SDA goes LOW
-                                sda_oe <= 1'b1;
-                            end
-                            1: begin
-                                // SCL goes LOW
-                                scl_oe <= 1'b1;
-                            end
+                            0: sda_oe <= 1'b1; // SDA goes LOW
+                            1: scl_oe <= 1'b1; // SCL goes LOW
                             2: begin
                                 state <= IDLE;
+                                o_done <= 1'b1;
                             end
                         endcase
                     end else begin
@@ -118,16 +135,74 @@ module i2c_master #(
                         step_count <= step_count + 1'b1;
                         
                         case (step_count)
-                            0: begin
-                                // SCL goes HIGH
-                                scl_oe <= 1'b0;
-                            end
-                            1: begin
-                                // SDA goes HIGH
-                                sda_oe <= 1'b0;
-                            end
+                            0: scl_oe <= 1'b0; // SCL goes HIGH
+                            1: sda_oe <= 1'b0; // SDA goes HIGH
                             2: begin
                                 state <= IDLE;
+                                o_done <= 1'b1;
+                            end
+                        endcase
+                    end else begin
+                        clk_count <= clk_count + 1'b1;
+                    end
+                end
+                
+                SEND_BYTE: begin
+                    if (clk_count == QUARTER_PERIOD - 1) begin
+                        clk_count <= 0;
+                        step_count <= step_count + 1'b1;
+                        
+                        case (step_count)
+                            0: begin
+                                // Q0: SCL is low, update SDA
+                                sda_oe <= ~tx_reg[bit_index]; // OE=1 pulls low (0), OE=0 releases (1)
+                            end
+                            1: begin
+                                // Q1: SCL goes high
+                                scl_oe <= 1'b0;
+                            end
+                            2: begin
+                                // Q2: SCL is high, data is valid
+                            end
+                            3: begin
+                                // Q3: SCL goes low
+                                scl_oe <= 1'b1;
+                                
+                                if (bit_index == 0) begin
+                                    state <= WAIT_ACK;
+                                end else begin
+                                    bit_index <= bit_index - 1'b1;
+                                end
+                            end
+                        endcase
+                    end else begin
+                        clk_count <= clk_count + 1'b1;
+                    end
+                end
+                
+                WAIT_ACK: begin
+                    if (clk_count == QUARTER_PERIOD - 1) begin
+                        clk_count <= 0;
+                        step_count <= step_count + 1'b1;
+                        
+                        case (step_count)
+                            0: begin
+                                // Q0: Release SDA so slave can drive ACK
+                                sda_oe <= 1'b0;
+                            end
+                            1: begin
+                                // Q1: SCL goes high
+                                scl_oe <= 1'b0;
+                            end
+                            2: begin
+                                // Q2: SCL is high. Sample ACK
+                                o_ack_error <= sda_sync[1]; // 0 = ACK, 1 = NACK
+                            end
+                            3: begin
+                                // Q3: SCL goes low
+                                scl_oe <= 1'b1;
+                                state <= IDLE;
+                                o_done <= 1'b1;
                             end
                         endcase
                     end else begin
