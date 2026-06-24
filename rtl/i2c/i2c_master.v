@@ -11,6 +11,7 @@ module i2c_master #(
     input  wire       i_gen_start,
     input  wire       i_gen_stop,
     input  wire       i_send_byte,
+    input  wire       i_cmd_write,    // Full transaction: START -> BYTE -> STOP
     input  wire [7:0] i_tx_data,
     
     output reg        o_busy,
@@ -40,6 +41,9 @@ module i2c_master #(
     reg [1:0]  step_count;
     reg [2:0]  bit_index;
     reg [7:0]  tx_reg;
+    
+    reg do_data_after_start;
+    reg do_stop_after_ack;
     
     // Output enables (active high drives 0, inactive high-Z is pulled up by resistor)
     reg scl_oe;
@@ -84,6 +88,8 @@ module i2c_master #(
             step_count <= 0;
             bit_index <= 0;
             tx_reg <= 0;
+            do_data_after_start <= 1'b0;
+            do_stop_after_ack   <= 1'b0;
         end else begin
             o_done <= 1'b0; // Default
             
@@ -93,11 +99,21 @@ module i2c_master #(
                     clk_count <= 0;
                     step_count <= 0;
                     
-                    if (i_gen_start) begin
+                    if (i_cmd_write) begin
+                        state <= START;
+                        o_busy <= 1'b1;
+                        scl_oe <= 1'b0; 
+                        sda_oe <= 1'b0;
+                        tx_reg <= i_tx_data;
+                        bit_index <= 3'd7;
+                        do_data_after_start <= 1'b1;
+                        do_stop_after_ack   <= 1'b1;
+                    end else if (i_gen_start) begin
                         state <= START;
                         o_busy <= 1'b1;
                         scl_oe <= 1'b0; // Ensure SCL is high-Z (high)
                         sda_oe <= 1'b0; // Ensure SDA is high-Z (high)
+                        do_data_after_start <= 1'b0;
                     end else if (i_gen_stop) begin
                         state <= STOP;
                         o_busy <= 1'b1;
@@ -108,6 +124,7 @@ module i2c_master #(
                         o_busy <= 1'b1;
                         tx_reg <= i_tx_data;
                         bit_index <= 3'd7; // MSB first
+                        do_stop_after_ack <= 1'b0;
                     end
                 end
                 
@@ -120,8 +137,14 @@ module i2c_master #(
                             0: sda_oe <= 1'b1; // SDA goes LOW
                             1: scl_oe <= 1'b1; // SCL goes LOW
                             2: begin
-                                state <= IDLE;
-                                o_done <= 1'b1;
+                                if (do_data_after_start) begin
+                                    state <= SEND_BYTE;
+                                    do_data_after_start <= 1'b0;
+                                    step_count <= 0;
+                                end else begin
+                                    state <= IDLE;
+                                    o_done <= 1'b1;
+                                end
                             end
                         endcase
                     end else begin
@@ -201,8 +224,15 @@ module i2c_master #(
                             3: begin
                                 // Q3: SCL goes low
                                 scl_oe <= 1'b1;
-                                state <= IDLE;
-                                o_done <= 1'b1;
+                                
+                                if (do_stop_after_ack) begin
+                                    state <= STOP;
+                                    do_stop_after_ack <= 1'b0;
+                                    step_count <= 0;
+                                end else begin
+                                    state <= IDLE;
+                                    o_done <= 1'b1;
+                                end
                             end
                         endcase
                     end else begin
